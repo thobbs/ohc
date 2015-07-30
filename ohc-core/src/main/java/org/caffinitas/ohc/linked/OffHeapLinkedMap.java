@@ -19,18 +19,14 @@ import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
 
 import org.caffinitas.ohc.OHCacheBuilder;
-import org.caffinitas.ohc.histo.EstimatedHistogram;
+import org.caffinitas.ohc.histogram.EstimatedHistogram;
 
-final class OffHeapMap
+final class OffHeapLinkedMap
 {
     // maximum hash table size
     private static final int MAX_TABLE_SIZE = 1 << 30;
 
-    private long lruHead;
-    private long lruTail;
-
     private long size;
-    private Table table;
 
     private long hitCount;
     private long missCount;
@@ -38,23 +34,33 @@ final class OffHeapMap
     private long putReplaceCount;
     private long removeCount;
 
-    private long threshold;
     private final float loadFactor;
 
     private long rehashes;
     private long evictedEntries;
 
-    private long freeCapacity;
-
     private final ReentrantLock lock = new ReentrantLock();
 
     private final boolean throwOOME;
 
-    OffHeapMap(OHCacheBuilder builder, long freeCapacity)
+    private long lruHead;
+    private long lruTail;
+
+    private Table table;
+
+    private long threshold;
+
+    private long freeCapacity;
+
+    OffHeapLinkedMap(OHCacheBuilder builder, long freeCapacity)
     {
         this.freeCapacity = freeCapacity;
-
         this.throwOOME = builder.isThrowOOME();
+
+        float lf = builder.getLoadFactor();
+        if (lf <= .0d)
+            lf = .75f;
+        this.loadFactor = lf;
 
         int hts = builder.getHashTableSize();
         if (hts <= 0)
@@ -65,25 +71,7 @@ final class OffHeapMap
         if (table == null)
             throw new RuntimeException("unable to allocate off-heap memory for segment");
 
-        float lf = builder.getLoadFactor();
-        if (lf <= .0d)
-            lf = .75f;
-        this.loadFactor = lf;
         threshold = (long) ((double) table.size() * loadFactor);
-    }
-
-    void release()
-    {
-        lock.lock();
-        try
-        {
-            table.release();
-            table = null;
-        }
-        finally
-        {
-            lock.unlock();
-        }
     }
 
     long size()
@@ -132,6 +120,30 @@ final class OffHeapMap
         return rehashes;
     }
 
+    long evictedEntries()
+    {
+        return evictedEntries;
+    }
+
+    float loadFactor()
+    {
+        return loadFactor;
+    }
+
+    void release()
+    {
+        lock.lock();
+        try
+        {
+            table.release();
+            table = null;
+        }
+        finally
+        {
+            lock.unlock();
+        }
+    }
+
     long freeCapacity()
     {
         return freeCapacity;
@@ -148,11 +160,6 @@ final class OffHeapMap
         {
             lock.unlock();
         }
-    }
-
-    long evictedEntries()
-    {
-        return evictedEntries;
     }
 
     long getEntry(KeyBuffer key, boolean reference)
@@ -453,11 +460,6 @@ final class OffHeapMap
         {
             lock.unlock();
         }
-    }
-
-    float loadFactor()
-    {
-        return loadFactor;
     }
 
     int hashTableSize()

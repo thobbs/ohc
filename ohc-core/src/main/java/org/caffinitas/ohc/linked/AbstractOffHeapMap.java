@@ -13,24 +13,16 @@
  *   See the License for the specific language governing permissions and
  *   limitations under the License.
  */
-package org.caffinitas.ohc.tables;
+package org.caffinitas.ohc.linked;
 
-import sun.misc.Unsafe;
+import org.caffinitas.ohc.OHCacheBuilder;
 
-final class UnsExt8 extends UnsExt
+abstract class AbstractOffHeapMap
 {
-    UnsExt8(Unsafe unsafe)
+
+    AbstractOffHeapMap(OHCacheBuilder builder)
     {
-        super(unsafe);
     }
 
-    long getAndPutLong(long address, long offset, long value)
-    {
-        return unsafe.getAndSetLong(null, address + offset, value);
-    }
-
-    int getAndAddInt(long address, long offset, int value)
-    {
-        return unsafe.getAndAddInt(null, address + offset, value);
-    }
+    abstract void release();
 }

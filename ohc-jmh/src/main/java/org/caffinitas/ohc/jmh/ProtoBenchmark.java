@@ -46,7 +46,7 @@ public class ProtoBenchmark
 {
     private OHCache<Integer, byte[]> cache;
 
-    @Param({"2048"/*, "65536"*/})
+    @Param({ "256", "2048"/*, "65536"*/ })
     private int valueSize = 2048;
     @Param("1073741824")
     private long capacity = 1024 * 1024 * 1024;
@@ -56,10 +56,16 @@ public class ProtoBenchmark
     private int hashTableSize = -1;
     @Param("1000000")
     private int keys = 1000000;
-    @Param({"linked"/*, "tables"*/})
+    @Param({ "linked", "chunked" })
     private String impl = "linked";
-    @Param({"MURMUR3"/*, "CRC32", "XX"*/})
+    @Param({ "MURMUR3"/*, "CRC32", "XX"*/ })
     private HashAlgorithm hashAlgorithm;
+    @Param({ "-1", "65536", "131072" })
+    private int chunkSize = -1;
+    @Param("-1")
+    private int fixedKeyLen = -1;
+    @Param("-1")
+    private int fixedValueLen = -1;
 
     @State(Scope.Thread)
     public static class PutState
@@ -80,9 +86,10 @@ public class ProtoBenchmark
                               .capacity(capacity)
                               .segmentCount(segmentCount)
                               .hashTableSize(hashTableSize)
-                              .type((Class<? extends OHCache>) Class.forName("org.caffinitas.ohc." + impl + ".OHCacheImpl"))
                               .keySerializer(Utils.intSerializer)
                               .valueSerializer(Utils.byteArraySerializer)
+                              .chunkSize(chunkSize)
+                              .fixedEntrySize(fixedKeyLen, fixedValueLen)
                               .build();
 
         for (int i = 0; i < keys; i++)

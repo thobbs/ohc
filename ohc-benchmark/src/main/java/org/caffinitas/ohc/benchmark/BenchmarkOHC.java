@@ -60,7 +60,6 @@ public final class BenchmarkOHC
     public static final String WRITE_KEY_DIST = "wkd";
     public static final String VALUE_SIZE_DIST = "vs";
     public static final String BUCKET_HISTOGRAM = "bh";
-    public static final String TYPE = "type";
     public static final String CSV = "csv";
 
     public static final String DEFAULT_VALUE_SIZE_DIST = "fixed(512)";
@@ -97,8 +96,6 @@ public final class BenchmarkOHC
 
             double readWriteRatio = Double.parseDouble(cmd.getOptionValue(READ_WRITE_RATIO, ".5"));
 
-            String type = cmd.getOptionValue(TYPE, "linked");
-
             Driver[] drivers = new Driver[threads];
             Random rnd = new Random();
             String readKeyDistStr = cmd.getOptionValue(READ_KEY_DIST, DEFAULT_KEY_DIST);
@@ -115,7 +112,6 @@ public final class BenchmarkOHC
 
             printMessage("Initializing OHC cache...");
             Shared.cache = OHCacheBuilder.<Long, byte[]>newBuilder()
-                                         .type((Class<? extends OHCache>) Class.forName("org.caffinitas.ohc." + type + ".OHCacheImpl"))
                                          .keySerializer(keyLen <= 0 ? BenchmarkUtils.longSerializer : new BenchmarkUtils.KeySerializer(keyLen))
                                          .valueSerializer(BenchmarkUtils.serializer)
                                          .hashTableSize(hashTableSize)
@@ -330,8 +326,6 @@ public final class BenchmarkOHC
         options.addOption(WRITE_KEY_DIST, true, "hot key use distribution - default: " + DEFAULT_KEY_DIST);
 
         options.addOption(BUCKET_HISTOGRAM, true, "enable bucket histogram. Default: false");
-
-        options.addOption(TYPE, true, "implementation type - default: linked - option: tables");
 
         options.addOption(CSV, true, "CSV stats output file");
 

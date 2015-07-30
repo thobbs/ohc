@@ -15,7 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.caffinitas.ohc.histo;
+package org.caffinitas.ohc.histogram;
 
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicLongArray;

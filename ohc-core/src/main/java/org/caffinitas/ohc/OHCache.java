@@ -26,7 +26,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import org.caffinitas.ohc.histo.EstimatedHistogram;
+import org.caffinitas.ohc.histogram.EstimatedHistogram;
 
 public interface OHCache<K, V> extends Closeable
 {

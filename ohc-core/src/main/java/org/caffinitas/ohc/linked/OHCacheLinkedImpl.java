@@ -48,16 +48,16 @@ import org.caffinitas.ohc.OHCacheBuilder;
 import org.caffinitas.ohc.OHCacheStats;
 import org.caffinitas.ohc.PermanentLoadException;
 import org.caffinitas.ohc.TemporaryLoadException;
-import org.caffinitas.ohc.histo.EstimatedHistogram;
+import org.caffinitas.ohc.histogram.EstimatedHistogram;
 
-public final class OHCacheImpl<K, V> implements OHCache<K, V>
+public final class OHCacheLinkedImpl<K, V> implements OHCache<K, V>
 {
-    private static final Logger LOGGER = LoggerFactory.getLogger(OHCacheImpl.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(OHCacheLinkedImpl.class);
 
     private final CacheSerializer<K> keySerializer;
     private final CacheSerializer<V> valueSerializer;
 
-    private final OffHeapMap[] maps;
+    private final OffHeapLinkedMap[] maps;
     private final long segmentMask;
     private final int segmentShift;
 
@@ -74,11 +74,16 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
     private final boolean throwOOME;
     private final Hasher hasher;
 
-    public OHCacheImpl(OHCacheBuilder<K, V> builder)
+    public OHCacheLinkedImpl(OHCacheBuilder<K, V> builder)
     {
         long capacity = builder.getCapacity();
         if (capacity <= 0L)
-            throw new IllegalArgumentException("capacity");
+            throw new IllegalArgumentException("capacity:" + capacity);
+
+        int segments = builder.getSegmentCount();
+        if (segments <= 0)
+            segments = Runtime.getRuntime().availableProcessors() * 2;
+        segments = (int) Util.roundUpToPowerOf2(segments, 1 << 30);
 
         this.capacity = capacity;
 
@@ -86,16 +91,12 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
         this.hasher = Hasher.create(builder.getHashAlgorighm());
 
         // build segments
-        int segments = builder.getSegmentCount();
-        if (segments <= 0)
-            segments = Runtime.getRuntime().availableProcessors() * 2;
-        segments = (int) Util.roundUpToPowerOf2(segments, 1 << 30);
-        maps = new OffHeapMap[segments];
+        maps = new OffHeapLinkedMap[segments];
         for (int i = 0; i < segments; i++)
         {
             try
             {
-                maps[i] = new OffHeapMap(builder, capacity / segments);
+                maps[i] = new OffHeapLinkedMap(builder, capacity / segments);
             }
             catch (RuntimeException e)
             {
@@ -205,6 +206,11 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
         long keyLen = keySerializer.serializedSize(k);
         long valueLen = valueSerializer.serializedSize(v);
 
+        if (keyLen <= 0)
+            throw new IllegalArgumentException("Illegal key length " + keyLen);
+        if (valueLen <= 0)
+            throw new IllegalArgumentException("Illegal value length " + valueLen);
+
         long bytes = Util.allocLen(keyLen, valueLen);
 
         long oldValueAdr = 0L;
@@ -215,6 +221,8 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
             if (old != null)
             {
                 oldValueLen = valueSerializer.serializedSize(old);
+                if (oldValueLen <= 0)
+                    throw new IllegalArgumentException("Illegal value length " + oldValueLen);
                 oldValueAdr = Uns.allocate(oldValueLen, throwOOME);
                 if (oldValueAdr == 0L)
                     throw new RuntimeException("Unable to allocate " + oldValueLen + " bytes in off-heap");
@@ -304,7 +312,7 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
 
         final KeyBuffer keySource = keySource(key);
 
-        final OffHeapMap segment = segment(keySource.hash());
+        final OffHeapLinkedMap segment = segment(keySource.hash());
         long hashEntryAdr = segment.getEntry(keySource, true);
 
         if (hashEntryAdr == 0L)
@@ -312,6 +320,8 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
             // this call is _likely_ the initial requestor for that key since there's no entry for the key
 
             final long keyLen = keySerializer.serializedSize(key);
+            if (keyLen <= 0)
+                throw new IllegalArgumentException("Illegal key length " + keyLen);
 
             long bytes = Util.allocLen(keyLen, 0L);
 
@@ -357,6 +367,8 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
                             value = loader.load(key);
 
                             long valueLen = valueSerializer.serializedSize(value);
+                            if (valueLen <= 0)
+                                throw new IllegalArgumentException("Illegal value length " + valueLen);
 
                             long bytes = Util.allocLen(keyLen, valueLen);
 
@@ -554,7 +566,7 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
         return future;
     }
 
-    private OffHeapMap segment(long hash)
+    private OffHeapLinkedMap segment(long hash)
     {
         int seg = (int) ((hash & segmentMask) >>> segmentShift);
         return maps[seg];
@@ -563,6 +575,8 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
     private KeyBuffer keySource(K o)
     {
         int size = keySerializer.serializedSize(o);
+        if (size <= 0)
+            throw new IllegalArgumentException("Illegal key length " + size);
 
         ByteBuffer keyBuffer = ByteBuffer.allocate(size);
         keySerializer.serialize(o, keyBuffer);
@@ -576,7 +590,7 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
 
     public void clear()
     {
-        for (OffHeapMap map : maps)
+        for (OffHeapLinkedMap map : maps)
             map.clear();
     }
 
@@ -592,7 +606,7 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
         this.capacity = capacity;
         long perSegment = capacity / segments();
         long diff = perSegment - oldPerSegment;
-        for (OffHeapMap map : maps)
+        for (OffHeapLinkedMap map : maps)
             map.updateFreeCapacity(diff);
     }
 
@@ -612,8 +626,9 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
 
         clear();
 
-        for (OffHeapMap map : maps)
+        for (OffHeapLinkedMap map : maps)
             map.release();
+        Arrays.fill(maps, null);
 
         if (LOGGER.isDebugEnabled())
             LOGGER.debug("Closing OHC instance");
@@ -625,7 +640,7 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
 
     public void resetStatistics()
     {
-        for (OffHeapMap map : maps)
+        for (OffHeapLinkedMap map : maps)
             map.resetStatistics();
         putFailCount = 0;
     }
@@ -633,7 +648,7 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
     public OHCacheStats stats()
     {
         long rehashes = 0L;
-        for (OffHeapMap map : maps)
+        for (OffHeapLinkedMap map : maps)
             rehashes += map.rehashes();
         return new OHCacheStats(
                                hitCount(),
@@ -655,7 +670,7 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
     private long putAddCount()
     {
         long putAddCount = 0L;
-        for (OffHeapMap map : maps)
+        for (OffHeapLinkedMap map : maps)
             putAddCount += map.putAddCount();
         return putAddCount;
     }
@@ -663,7 +678,7 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
     private long putReplaceCount()
     {
         long putReplaceCount = 0L;
-        for (OffHeapMap map : maps)
+        for (OffHeapLinkedMap map : maps)
             putReplaceCount += map.putReplaceCount();
         return putReplaceCount;
     }
@@ -671,7 +686,7 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
     private long removeCount()
     {
         long removeCount = 0L;
-        for (OffHeapMap map : maps)
+        for (OffHeapLinkedMap map : maps)
             removeCount += map.removeCount();
         return removeCount;
     }
@@ -679,7 +694,7 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
     private long hitCount()
     {
         long hitCount = 0L;
-        for (OffHeapMap map : maps)
+        for (OffHeapLinkedMap map : maps)
             hitCount += map.hitCount();
         return hitCount;
     }
@@ -687,7 +702,7 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
     private long missCount()
     {
         long missCount = 0L;
-        for (OffHeapMap map : maps)
+        for (OffHeapLinkedMap map : maps)
             missCount += map.missCount();
         return missCount;
     }
@@ -700,7 +715,7 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
     public long freeCapacity()
     {
         long freeCapacity = 0L;
-        for (OffHeapMap map : maps)
+        for (OffHeapLinkedMap map : maps)
             freeCapacity += map.freeCapacity();
         return freeCapacity;
     }
@@ -708,7 +723,7 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
     public long evictedEntries()
     {
         long evictedEntries = 0L;
-        for (OffHeapMap map : maps)
+        for (OffHeapLinkedMap map : maps)
             evictedEntries += map.evictedEntries();
         return evictedEntries;
     }
@@ -716,7 +731,7 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
     public long size()
     {
         long size = 0L;
-        for (OffHeapMap map : maps)
+        for (OffHeapLinkedMap map : maps)
             size += map.size();
         return size;
     }
@@ -750,7 +765,7 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
     public EstimatedHistogram getBucketHistogram()
     {
         EstimatedHistogram hist = new EstimatedHistogram();
-        for (OffHeapMap map : maps)
+        for (OffHeapLinkedMap map : maps)
             map.updateBucketHistogram(hist);
 
         long[] offsets = hist.getBucketOffsets();
@@ -1020,7 +1035,7 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
         int perMap = n / maps.length + 1;
         int cnt = 0;
 
-        for (OffHeapMap map : maps)
+        for (OffHeapLinkedMap map : maps)
         {
             long[] hotPerMap = map.hotN(perMap);
             try
@@ -1170,7 +1185,7 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
     private abstract class AbstractKeyIterator<R> implements CloseableIterator<R>
     {
         private int segmentIndex;
-        private OffHeapMap segment;
+        private OffHeapLinkedMap segment;
 
         private int mapSegmentCount;
         private int mapSegmentIndex;
@@ -1181,7 +1196,7 @@ public final class OHCacheImpl<K, V> implements OHCache<K, V>
         private boolean eod;
         private R next;
 
-        private OffHeapMap lastSegment;
+        private OffHeapLinkedMap lastSegment;
         private long lastHashEntryAdr;
 
         public void close()

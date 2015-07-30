@@ -15,7 +15,6 @@
  */
 package org.caffinitas.ohc.linked;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Random;
 

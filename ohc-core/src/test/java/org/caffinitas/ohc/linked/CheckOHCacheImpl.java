@@ -36,11 +36,11 @@ import org.caffinitas.ohc.CloseableIterator;
 import org.caffinitas.ohc.OHCache;
 import org.caffinitas.ohc.OHCacheBuilder;
 import org.caffinitas.ohc.OHCacheStats;
-import org.caffinitas.ohc.histo.EstimatedHistogram;
+import org.caffinitas.ohc.histogram.EstimatedHistogram;
 
 /**
  * This is a {@link org.caffinitas.ohc.OHCache} implementation used to validate functionality of
- * {@link org.caffinitas.ohc.linked.OHCacheImpl} - this implementation is <b>not</b> for production use!
+ * {@link OHCacheLinkedImpl} - this implementation is <b>not</b> for production use!
  */
 final class CheckOHCacheImpl<K, V> implements OHCache<K, V>
 {

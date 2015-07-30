@@ -33,12 +33,12 @@ import org.caffinitas.ohc.CloseableIterator;
 import org.caffinitas.ohc.OHCache;
 import org.caffinitas.ohc.OHCacheBuilder;
 import org.caffinitas.ohc.OHCacheStats;
-import org.caffinitas.ohc.histo.EstimatedHistogram;
+import org.caffinitas.ohc.histogram.EstimatedHistogram;
 import org.testng.Assert;
 
 /**
  * Test code that contains an instance of the production and check {@link org.caffinitas.ohc.OHCache}
- * implementations {@link org.caffinitas.ohc.linked.OHCacheImpl} and
+ * implementations {@link OHCacheLinkedImpl} and
  * {@link CheckOHCacheImpl}.
  */
 public class DoubleCheckCacheImpl<K, V> implements OHCache<K, V>
@@ -99,21 +99,6 @@ public class DoubleCheckCacheImpl<K, V> implements OHCache<K, V>
     }
 
     public DirectValueAccess getDirect(K key)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    public DirectValueAccess putDirect(K key, long valueLen)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    public DirectValueAccess addOrReplaceDirect(K k, DirectValueAccess old, long valueLen)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    public DirectValueAccess putIfAbsentDirect(K k, long valueLen)
     {
         throw new UnsupportedOperationException();
     }

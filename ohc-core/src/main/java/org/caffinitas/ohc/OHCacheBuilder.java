@@ -15,10 +15,10 @@
  */
 package org.caffinitas.ohc;
 
-import java.lang.reflect.InvocationTargetException;
 import java.util.concurrent.ScheduledExecutorService;
 
-import org.caffinitas.ohc.linked.OHCacheImpl;
+import org.caffinitas.ohc.chunked.OHCacheChunkedImpl;
+import org.caffinitas.ohc.linked.OHCacheLinkedImpl;
 
 /**
  * Configures and builds OHC instance.
@@ -64,14 +64,22 @@ import org.caffinitas.ohc.linked.OHCacheImpl;
  *         <td>16 MB * number of CPUs ({@code java.lang.Runtime.availableProcessors()}), minimum 64 MB</td>
  *     </tr>
  *     <tr>
+ *         <td>{@code chunkSize}</td>
+ *         <td>If set and positive, the <i>chunked</i> implementation will be used and each segment
+ *         will be divided into this amount of chunks.</td>
+ *         <td>{@code 0} - i.e. <i>linked</i> implementation will be used</td>
+ *     </tr>
+ *     <tr>
+ *         <td>{@code fixedEntrySize}</td>
+ *         <td>If set and positive, the <i>chunked</i> implementation with fixed sized entries
+ *         will be used. The parameter {@code chunkSize} must be set for fixed-sized entries.</td>
+ *         <td>{@code 0} - i.e. <i>linked</i> implementation will be used,
+ *         if {@code chunkSize} is also {@code 0}</td>
+ *     </tr>
+ *     <tr>
  *         <td>{@code maxEntrySize}</td>
  *         <td>Maximum size of a hash entry (including header, serialized key + serialized value)</td>
  *         <td>(not set, defaults to capacity)</td>
- *     </tr>
- *     <tr>
- *         <td>{@code bucketLength}</td>
- *         <td>(For tables implementation only) Number of entries per bucket.</td>
- *         <td>{@code 8}</td>
  *     </tr>
  *     <tr>
  *         <td>{@code throwOOME}</td>
@@ -96,16 +104,20 @@ import org.caffinitas.ohc.linked.OHCacheImpl;
  */
 public class OHCacheBuilder<K, V>
 {
-    private int segmentCount;
-    private int hashTableSize = 8192;
-    private int bucketLength = 8;
     private long capacity;
+    private int segmentCount;
+    private int chunkSize;
+
+    private int hashTableSize = 8192;
+    private float loadFactor = .75f;
+    private int fixedKeySize;
+    private int fixedValueSize;
+    private long maxEntrySize;
+
     private CacheSerializer<K> keySerializer;
     private CacheSerializer<V> valueSerializer;
-    private float loadFactor = .75f;
-    private long maxEntrySize;
-    private Class<? extends OHCache> type = OHCacheImpl.class;
     private ScheduledExecutorService executorService;
+
     private boolean throwOOME;
     private HashAlgorithm hashAlgorighm = HashAlgorithm.MURMUR3;
 
@@ -116,31 +128,18 @@ public class OHCacheBuilder<K, V>
         segmentCount = roundUpToPowerOf2(cpus * 2, 1 << 30);
         capacity = Math.min(cpus * 16, 64) * 1024 * 1024;
 
-        segmentCount = fromSystemProperties("segmentCount", segmentCount);
-        hashTableSize = fromSystemProperties("hashTableSize", hashTableSize);
-        bucketLength = fromSystemProperties("bucketLength", bucketLength);
         capacity = fromSystemProperties("capacity", capacity);
+        segmentCount = fromSystemProperties("segmentCount", segmentCount);
+        chunkSize = fromSystemProperties("chunkSize", chunkSize);
+
+        hashTableSize = fromSystemProperties("hashTableSize", hashTableSize);
         loadFactor = fromSystemProperties("loadFactor", loadFactor);
         maxEntrySize = fromSystemProperties("maxEntrySize", maxEntrySize);
+        fixedKeySize = fromSystemProperties("fixedKeySize", fixedKeySize);
+        fixedValueSize = fromSystemProperties("fixedValueSize", fixedValueSize);
+
         throwOOME = fromSystemProperties("throwOOME", throwOOME);
         hashAlgorighm = HashAlgorithm.valueOf(fromSystemProperties("hashAlgorighm", hashAlgorighm.name()));
-        String t = fromSystemProperties("type", null);
-        if (t != null)
-            try
-            {
-                type = (Class<? extends OHCache>) Class.forName(t);
-            }
-            catch (ClassNotFoundException x)
-            {
-                try
-                {
-                    type = (Class<? extends OHCache>) Class.forName("org.caffinitas.ohc." + t + ".OHCacheImpl");
-                }
-                catch (ClassNotFoundException e)
-                {
-                    throw new RuntimeException(e);
-                }
-            }
     }
 
     public static final String SYSTEM_PROPERTY_PREFIX = "org.caffinitas.ohc.";
@@ -212,25 +211,9 @@ public class OHCacheBuilder<K, V>
 
     public OHCache<K, V> build()
     {
-        try
-        {
-            return type.getDeclaredConstructor(OHCacheBuilder.class).newInstance(this);
-        }
-        catch (InstantiationException | IllegalAccessException | NoSuchMethodException | InvocationTargetException e)
-        {
-            throw new RuntimeException(e);
-        }
-    }
-
-    public Class<? extends OHCache> getType()
-    {
-        return type;
-    }
-
-    public OHCacheBuilder<K, V> type(Class<? extends OHCache> type)
-    {
-        this.type = type;
-        return this;
+        if (fixedKeySize > 0 || fixedValueSize > 0|| chunkSize > 0)
+            return new OHCacheChunkedImpl<>(this);
+        return new OHCacheLinkedImpl<>(this);
     }
 
     public int getHashTableSize()
@@ -240,18 +223,22 @@ public class OHCacheBuilder<K, V>
 
     public OHCacheBuilder<K, V> hashTableSize(int hashTableSize)
     {
+        if (hashTableSize < -1)
+            throw new IllegalArgumentException("hashTableSize:" + hashTableSize);
         this.hashTableSize = hashTableSize;
         return this;
     }
 
-    public int getBucketLength()
+    public int getChunkSize()
     {
-        return bucketLength;
+        return chunkSize;
     }
 
-    public OHCacheBuilder<K, V> bucketLength(int bucketLength)
+    public OHCacheBuilder<K, V> chunkSize(int chunkSize)
     {
-        this.bucketLength = bucketLength;
+        if (chunkSize < -1)
+            throw new IllegalArgumentException("chunkSize:" + chunkSize);
+        this.chunkSize = chunkSize;
         return this;
     }
 
@@ -262,6 +249,8 @@ public class OHCacheBuilder<K, V>
 
     public OHCacheBuilder<K, V> capacity(long capacity)
     {
+        if (capacity <= 0)
+            throw new IllegalArgumentException("capacity:" + capacity);
         this.capacity = capacity;
         return this;
     }
@@ -295,6 +284,8 @@ public class OHCacheBuilder<K, V>
 
     public OHCacheBuilder<K, V> segmentCount(int segmentCount)
     {
+        if (segmentCount < -1)
+            throw new IllegalArgumentException("segmentCount:" + segmentCount);
         this.segmentCount = segmentCount;
         return this;
     }
@@ -306,6 +297,8 @@ public class OHCacheBuilder<K, V>
 
     public OHCacheBuilder<K, V> loadFactor(float loadFactor)
     {
+        if (loadFactor <= 0f)
+            throw new IllegalArgumentException("loadFactor:" + loadFactor);
         this.loadFactor = loadFactor;
         return this;
     }
@@ -317,7 +310,29 @@ public class OHCacheBuilder<K, V>
 
     public OHCacheBuilder<K, V> maxEntrySize(long maxEntrySize)
     {
+        if (maxEntrySize < 0)
+            throw new IllegalArgumentException("maxEntrySize:" + maxEntrySize);
         this.maxEntrySize = maxEntrySize;
+        return this;
+    }
+
+    public int getFixedKeySize()
+    {
+        return fixedKeySize;
+    }
+
+    public int getFixedValueSize()
+    {
+        return fixedValueSize;
+    }
+
+    public OHCacheBuilder<K, V> fixedEntrySize(int fixedKeySize, int fixedValueSize)
+    {
+        if ((fixedKeySize > 0 || fixedValueSize > 0) &&
+            (fixedKeySize <= 0 || fixedValueSize <= 0))
+            throw new IllegalArgumentException("fixedKeySize:" + fixedKeySize+",fixedValueSize:" + fixedValueSize);
+        this.fixedKeySize = fixedKeySize;
+        this.fixedValueSize = fixedValueSize;
         return this;
     }
 
@@ -339,6 +354,8 @@ public class OHCacheBuilder<K, V>
 
     public OHCacheBuilder<K, V> hashMode(HashAlgorithm hashMode)
     {
+        if (hashMode == null)
+            throw new NullPointerException("hashMode");
         this.hashAlgorighm = hashMode;
         return this;
     }
