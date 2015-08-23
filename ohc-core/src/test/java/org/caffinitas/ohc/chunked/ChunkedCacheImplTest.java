@@ -36,6 +36,7 @@ import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.Test;
 
+import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
 // This unit test uses the production cache implementation and an independent OHCache implementation used to
@@ -78,6 +79,42 @@ public class ChunkedCacheImplTest
             builder.maxEntrySize(maxEntrySize);
 
         return builder.build();
+    }
+
+    @Test
+    public void testBufferRealloc() throws IOException, InterruptedException
+    {
+        try (OHCache<Integer, String> cache = cache())
+        {
+            String strings[] = {
+                               stringWithLength(1024),
+                               stringWithLength(2048),
+                               stringWithLength(3072),
+                               stringWithLength(4096),
+                               stringWithLength(5120),
+                               stringWithLength(8192),
+                               stringWithLength(12288),
+                               stringWithLength(16384),
+            };
+            for (int i = 0; i < strings.length; i++)
+            {
+                cache.put(i, strings[i]);
+            }
+            for (int i = 0; i < strings.length; i++)
+            {
+                assertEquals(strings[i], cache.get(i));
+            }
+        }
+    }
+
+    private static String stringWithLength(int len)
+    {
+        StringBuilder sb = new StringBuilder(len);
+        for (int i = 0; i < len; i++)
+        {
+            sb.append((char)('A' + i % 26));
+        }
+        return sb.toString();
     }
 
     @Test

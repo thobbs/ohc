@@ -48,14 +48,6 @@ final class Util
     // variable-size: offset of data in first block
     static final int ENTRY_OFF_DATA_VARIABLE = 24;
 
-    static int roundUpTo1K(int val)
-    {
-        int rem = val & 0x3ff; // 1kB
-        if (rem != 0)
-            val += 1024L - rem;
-        return val;
-    }
-
     static int allocLen(int keyLen, int valueLen, boolean fixedEntrySize)
     {
         return entryOffData(fixedEntrySize) + keyLen + valueLen;

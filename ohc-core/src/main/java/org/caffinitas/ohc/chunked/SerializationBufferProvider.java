@@ -21,14 +21,43 @@ import java.nio.ByteBuffer;
 
 final class SerializationBufferProvider
 {
-    private final ThreadLocal<ByteBuffer> serializationBuffer = new ThreadLocal<>();
+    public static final int RESIZE_AMOUNT = 4096;
+    private final ThreadLocal<ByteBuffer> serializationBuffer = new ThreadLocal<ByteBuffer>()
+    {
+        protected ByteBuffer initialValue()
+        {
+            return ByteBuffer.allocate(initialSize);
+        }
+    };
+    private final int initialSize;
+
+    private static int roundUpTo4K(int val)
+    {
+        int rem = val & 0xfff; // 4kB
+        if (rem != 0)
+            val += 4096L - rem;
+        return val;
+    }
+
+    SerializationBufferProvider(int initialSize)
+    {
+        this.initialSize = roundUpTo4K(Math.min(RESIZE_AMOUNT, initialSize));
+    }
 
     ByteBuffer get(int bytes)
     {
-        ByteBuffer hashEntry = serializationBuffer.get();
-        if (hashEntry == null || hashEntry.capacity() < bytes)
-            serializationBuffer.set(hashEntry = ByteBuffer.allocate(Util.roundUpTo1K(bytes)));
-        hashEntry.clear();
-        return hashEntry;
+        ByteBuffer buffer = serializationBuffer.get();
+        if (buffer.capacity() < bytes)
+            serializationBuffer.set(buffer = ByteBuffer.allocate(roundUpTo4K(bytes)));
+        buffer.clear();
+        return buffer;
+    }
+
+    ByteBuffer resize()
+    {
+        ByteBuffer buffer = serializationBuffer.get();
+        ByteBuffer newBuffer = ByteBuffer.allocate(buffer.capacity() + RESIZE_AMOUNT);
+        serializationBuffer.set(newBuffer);
+        return newBuffer;
     }
 }

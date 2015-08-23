@@ -16,6 +16,7 @@
 package org.caffinitas.ohc.chunked;
 
 import java.io.IOException;
+import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.WritableByteChannel;
@@ -62,7 +63,7 @@ public final class OHCacheChunkedImpl<K, V> implements OHCache<K, V>
 
     private final Hasher hasher;
 
-    private final SerializationBufferProvider serializationBufferProvider = new SerializationBufferProvider();
+    private final SerializationBufferProvider serializationBufferProvider;
 
     public OHCacheChunkedImpl(OHCacheBuilder<K, V> builder)
     {
@@ -79,11 +80,15 @@ public final class OHCacheChunkedImpl<K, V> implements OHCache<K, V>
         if (chunkSize < 0 || chunkSize > capacity / segments / 2)
             throw new IllegalArgumentException("chunkSize:" + chunkSize);
 
-        this.fixedKeySize = builder.getFixedKeySize();
-        this.fixedValueSize = builder.getFixedValueSize();
+        this.fixedKeySize = Math.max(builder.getFixedKeySize(), 0);
+        this.fixedValueSize = Math.max(builder.getFixedValueSize(), 0);
         if ((fixedKeySize > 0 || fixedValueSize > 0) &&
             (fixedKeySize <= 0 || fixedValueSize <= 0))
             throw new IllegalArgumentException("fixedKeySize:" + fixedKeySize+",fixedValueSize:" + fixedValueSize);
+
+        serializationBufferProvider = new SerializationBufferProvider(isFixedSize()
+                                                                      ? Util.entryOffData(true) + fixedKeySize + fixedValueSize
+                                                                      : 1024);
 
         this.capacity = capacity;
 
@@ -184,32 +189,24 @@ public final class OHCacheChunkedImpl<K, V> implements OHCache<K, V>
         if (k == null || v == null)
             throw new NullPointerException();
 
-        int keyLen = fixedKeySize > 0 ? fixedKeySize : keySerializer.serializedSize(k);
-        int valueLen = fixedValueSize > 0 ? fixedValueSize : valueSerializer.serializedSize(v);
+        if (isFixedSize())
+            return putInternalFixed(k, v, ifAbsent, old);
 
-        if (keyLen <= 0)
-            throw new IllegalArgumentException("Illegal key length " + keyLen);
-        if (valueLen <= 0)
-            throw new IllegalArgumentException("Illegal value length " + valueLen);
+        return putInternalVariable(k, v, ifAbsent, old);
+    }
+
+    private boolean putInternalFixed(K k, V v, boolean ifAbsent, V old)
+    {
+        int keyLen = fixedKeySize;
+        int valueLen = fixedValueSize;
 
         int bytes = Util.allocLen(keyLen, valueLen, isFixedSize());
         int entryBytes = bytes;
 
-        if (maxEntrySize > 0L && bytes > maxEntrySize)
-        {
-            remove(k);
-            return false;
-        }
-
         int oldValueLen = 0;
-
         if (old != null)
         {
-            oldValueLen = valueSerializer.serializedSize(old);
-            if (oldValueLen <= 0)
-                throw new IllegalArgumentException("Illegal value length " + oldValueLen);
-            if (fixedValueSize > 0 && fixedValueSize != valueLen)
-                throw new IllegalArgumentException("Wrong value length " + valueLen + " for expected fixed-length-value " + fixedValueSize);
+            oldValueLen = valueLen;
             bytes += oldValueLen;
         }
 
@@ -238,6 +235,53 @@ public final class OHCacheChunkedImpl<K, V> implements OHCache<K, V>
         initEntry(hash, keyLen, valueLen, hashEntry);
 
         return segment(hash).putEntry(hashEntry, hash, keyLen, entryBytes, ifAbsent, oldValueLen);
+    }
+
+    private boolean putInternalVariable(K k, V v, boolean ifAbsent, V old)
+    {
+        ByteBuffer hashEntry = serializationBufferProvider.get(0);
+        while (true)
+        {
+            try
+            {
+                hashEntry.position(Util.entryOffData(isFixedSize()));
+                keySerializer.serialize(k, hashEntry);
+                int keyLen = hashEntry.position() - Util.entryOffData(isFixedSize());
+                valueSerializer.serialize(v, hashEntry);
+                int valueLen = hashEntry.position() - keyLen - Util.entryOffData(isFixedSize());
+                int entryBytes = hashEntry.position();
+
+                if (maxEntrySize > 0L && entryBytes > maxEntrySize)
+                {
+                    remove(k);
+                    return false;
+                }
+
+                int oldValueLen = 0;
+                if (old != null)
+                {
+                    valueSerializer.serialize(old, hashEntry);
+                    oldValueLen = hashEntry.position() - entryBytes;
+                }
+                int bytes = hashEntry.position();
+
+                hashEntry.position(Util.entryOffData(isFixedSize()));
+                hashEntry.limit(Util.entryOffData(isFixedSize()) + keyLen);
+                long hash = hasher.hash(hashEntry);
+
+                hashEntry.position(0);
+                hashEntry.limit(bytes);
+
+                // initialize hash entry
+                initEntry(hash, keyLen, valueLen, hashEntry);
+
+                return segment(hash).putEntry(hashEntry, hash, keyLen, entryBytes, ifAbsent, oldValueLen);
+            }
+            catch (BufferOverflowException realloc)
+            {
+                hashEntry = serializationBufferProvider.resize();
+            }
+        }
     }
 
     private boolean isFixedSize()
@@ -278,15 +322,35 @@ public final class OHCacheChunkedImpl<K, V> implements OHCache<K, V>
 
     private KeyBuffer keySource(K o)
     {
-        int keyLen = fixedKeySize > 0 ? fixedKeySize : keySerializer.serializedSize(o);
+        if (isFixedSize())
+            return keySourceFixed(o);
+        return keySourceVariable(o);
+    }
 
-        if (keyLen <= 0)
-            throw new IllegalArgumentException("Illegal key length " + keyLen);
+    private KeyBuffer keySourceFixed(K o)
+    {
+        int keyLen = fixedKeySize;
 
         ByteBuffer keyBuffer = serializationBufferProvider.get(keyLen);
         keySerializer.serialize(o, keyBuffer);
-        fillUntil(keyBuffer, keyLen);
         return new KeyBuffer(keyBuffer).finish(hasher);
+    }
+
+    private KeyBuffer keySourceVariable(K o)
+    {
+        ByteBuffer keyBuffer = serializationBufferProvider.get(0);
+        while (true)
+        {
+            try
+            {
+                keySerializer.serialize(o, keyBuffer);
+                return new KeyBuffer(keyBuffer).finish(hasher);
+            }
+            catch (BufferOverflowException resize)
+            {
+                keyBuffer = serializationBufferProvider.resize();
+            }
+        }
     }
 
     private void fillUntil(ByteBuffer keyBuffer, int until)
