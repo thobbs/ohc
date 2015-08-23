@@ -437,7 +437,7 @@ final class OffHeapChunkedMap
 
         int serKeyLen = getKeyLen(hashEntryOffset);
         return serKeyLen != key.size()
-               || !compareKey(hashEntryOffset, key, serKeyLen);
+               || !compareKey(hashEntryOffset, key);
     }
 
     private boolean notSameKey(ByteBuffer newHashEntry, long newHash, int newKeyLen, int hashEntryOffset)
@@ -817,11 +817,12 @@ final class OffHeapChunkedMap
         return true;
     }
 
-    private boolean compareKey(int hashEntryOffset, KeyBuffer key, long serKeyLen)
+    private boolean compareKey(int hashEntryOffset, KeyBuffer key)
     {
         int blkOff = Util.entryOffData(isFixedSize());
         int p = 0;
         ByteBuffer buf = key.buffer();
+        int serKeyLen = key.size();
         for (; p <= serKeyLen - 8; p += 8, blkOff += 8)
             if (memory.getLong(hashEntryOffset + blkOff) != buf.getLong(p))
                 return false;

@@ -632,50 +632,6 @@ public class ChunkedFixedCacheImplTest
         }
     }
 
-    @Test(expectedExceptions = IllegalArgumentException.class, expectedExceptionsMessageRegExp = "Wrong key length " + (TestUtils.FIXED_KEY_LEN + 1) + " for.*")
-    public void testFixedKeyTooLong() throws IOException
-    {
-        OHCacheBuilder<Integer, String> builder = fixedSerializerSizes(TestUtils.FIXED_KEY_LEN + 1, TestUtils.FIXED_VALUE_LEN);
-
-        try (OHCache<Integer, String> cache = builder.build())
-        {
-            cache.put(1, new String(new byte[3]));
-        }
-    }
-
-    @Test(expectedExceptions = IllegalArgumentException.class, expectedExceptionsMessageRegExp = "Wrong value length " + (TestUtils.FIXED_VALUE_LEN + 1) + " for.*")
-    public void testValueKeyTooLong() throws IOException
-    {
-        OHCacheBuilder<Integer, String> builder = fixedSerializerSizes(TestUtils.FIXED_KEY_LEN, TestUtils.FIXED_VALUE_LEN + 1);
-
-        try (OHCache<Integer, String> cache = builder.build())
-        {
-            cache.put(1, new String(new byte[3]));
-        }
-    }
-
-    @Test(expectedExceptions = IllegalArgumentException.class, expectedExceptionsMessageRegExp = "Wrong key length " + (TestUtils.FIXED_KEY_LEN - 1) + " for.*")
-    public void testFixedKeyTooShort() throws IOException
-    {
-        OHCacheBuilder<Integer, String> builder = fixedSerializerSizes(TestUtils.FIXED_KEY_LEN - 1, TestUtils.FIXED_VALUE_LEN);
-
-        try (OHCache<Integer, String> cache = builder.build())
-        {
-            cache.put(1, new String(new byte[3]));
-        }
-    }
-
-    @Test(expectedExceptions = IllegalArgumentException.class, expectedExceptionsMessageRegExp = "Wrong value length " + (TestUtils.FIXED_VALUE_LEN - 1) + " for.*")
-    public void testValueKeyTooShort() throws IOException
-    {
-        OHCacheBuilder<Integer, String> builder = fixedSerializerSizes(TestUtils.FIXED_KEY_LEN, TestUtils.FIXED_VALUE_LEN - 1);
-
-        try (OHCache<Integer, String> cache = builder.build())
-        {
-            cache.put(1, new String(new byte[3]));
-        }
-    }
-
     private OHCacheBuilder<Integer, String> fixedSerializerSizes(final int keyLen, final int valueLen)
     {
         return OHCacheBuilder.<Integer, String>newBuilder()

@@ -16,31 +16,29 @@
 package org.caffinitas.ohc.chunked;
 
 import java.nio.ByteBuffer;
-import java.util.Arrays;
 
 final class KeyBuffer
 {
-    private final byte[] array;
+    private final ByteBuffer bytes;
     private long hash;
 
-    // TODO maybe move 'array' to off-heap - depends on actual use.
-    // pro: reduces heap pressure
-    // pro: harmonize code for key + value (de)serialization in DataIn/Output implementations
-    // con: puts pressure on jemalloc
-
-    KeyBuffer(byte[] bytes)
+    /**
+     * The passed in ByteBuffer is usually derived via SerializationBufferProvider
+     */
+    KeyBuffer(ByteBuffer bytes)
     {
-        array = bytes;
+        this.bytes = bytes;
+        bytes.flip();
     }
 
     ByteBuffer buffer()
     {
-        return ByteBuffer.wrap(array);
+        return bytes;
     }
 
     int size()
     {
-        return array.length;
+        return bytes.limit();
     }
 
     long hash()
@@ -50,7 +48,8 @@ final class KeyBuffer
 
     KeyBuffer finish(Hasher hasher)
     {
-        hash = hasher.hash(array);
+        // duplicate the buffer as the hasher implementation may change position
+        hash = hasher.hash(bytes.duplicate());
 
         return this;
     }
@@ -62,7 +61,7 @@ final class KeyBuffer
 
         KeyBuffer keyBuffer = (KeyBuffer) o;
 
-        return Arrays.equals(array, keyBuffer.array);
+        return bytes.equals(keyBuffer.bytes);
     }
 
     public int hashCode()
@@ -82,9 +81,9 @@ final class KeyBuffer
     public String toString()
     {
         StringBuilder sb = new StringBuilder();
-        for (int ii = 0; ii < array.length; ii++) {
+        for (int ii = 0; ii < bytes.limit(); ii++) {
             if (ii % 8 == 0 && ii != 0) sb.append('\n');
-            sb.append(padToEight(array[ii]));
+            sb.append(padToEight(bytes.get(ii)));
             sb.append(' ');
         }
         return sb.toString();

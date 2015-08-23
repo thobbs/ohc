@@ -184,17 +184,13 @@ public final class OHCacheChunkedImpl<K, V> implements OHCache<K, V>
         if (k == null || v == null)
             throw new NullPointerException();
 
-        int keyLen = keySerializer.serializedSize(k);
-        int valueLen = valueSerializer.serializedSize(v);
+        int keyLen = fixedKeySize > 0 ? fixedKeySize : keySerializer.serializedSize(k);
+        int valueLen = fixedValueSize > 0 ? fixedValueSize : valueSerializer.serializedSize(v);
 
         if (keyLen <= 0)
             throw new IllegalArgumentException("Illegal key length " + keyLen);
         if (valueLen <= 0)
             throw new IllegalArgumentException("Illegal value length " + valueLen);
-        if (fixedKeySize > 0 && fixedKeySize != keyLen)
-            throw new IllegalArgumentException("Wrong key length " + keyLen + " for expected fixed-length-key " + fixedKeySize);
-        if (fixedValueSize > 0 && fixedValueSize != valueLen)
-            throw new IllegalArgumentException("Wrong value length " + valueLen + " for expected fixed-length-value " + fixedValueSize);
 
         int bytes = Util.allocLen(keyLen, valueLen, isFixedSize());
         int entryBytes = bytes;
@@ -282,18 +278,15 @@ public final class OHCacheChunkedImpl<K, V> implements OHCache<K, V>
 
     private KeyBuffer keySource(K o)
     {
-        int keyLen = keySerializer.serializedSize(o);
+        int keyLen = fixedKeySize > 0 ? fixedKeySize : keySerializer.serializedSize(o);
 
         if (keyLen <= 0)
             throw new IllegalArgumentException("Illegal key length " + keyLen);
-        if (fixedKeySize > 0 && fixedKeySize != keyLen)
-            throw new IllegalArgumentException("Wrong key length " + keyLen + " for expected fixed-length-key " + fixedKeySize);
 
-        ByteBuffer keyBuffer = ByteBuffer.allocate(keyLen);
+        ByteBuffer keyBuffer = serializationBufferProvider.get(keyLen);
         keySerializer.serialize(o, keyBuffer);
         fillUntil(keyBuffer, keyLen);
-        assert(keyBuffer.position() == keyBuffer.capacity()) && (keyBuffer.capacity() == keyLen);
-        return new KeyBuffer(keyBuffer.array()).finish(hasher);
+        return new KeyBuffer(keyBuffer).finish(hasher);
     }
 
     private void fillUntil(ByteBuffer keyBuffer, int until)
@@ -333,7 +326,7 @@ public final class OHCacheChunkedImpl<K, V> implements OHCache<K, V>
 
     public void setCapacity(long capacity)
     {
-        throw new UnsupportedOperationException("Chaning capacity not supported");
+        throw new UnsupportedOperationException("Changing capacity not supported");
     }
 
     public void close()
